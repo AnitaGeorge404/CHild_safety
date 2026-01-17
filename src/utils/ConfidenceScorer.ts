@@ -15,25 +15,25 @@
 import type { MotionFeatures, DetectionResult } from '../types/motion';
 
 export class ConfidenceScorer {
-  // Adaptive thresholds - tuned for child safety scenarios
+  // Adaptive thresholds - tuned for child safety scenarios (BALANCED)
   private readonly FALL_THRESHOLDS = {
-    FREE_FALL_MAX: 2.5,        // m/s² - Near zero acceleration (less than ~0.25g) - INCREASED
-    IMPACT_MIN: 35.0,          // m/s² - Strong impact (>3.5g) - INCREASED
-    INACTIVITY_MAX: 4.0,       // m/s² - Minimal movement after fall - INCREASED
-    JERK_SPIKE_MIN: 150.0,     // m/s³ - Sudden change indicates impact - INCREASED
+    FREE_FALL_MAX: 3.5,        // m/s² - Near zero acceleration (less than ~0.35g) - Must be very low gravity
+    IMPACT_MIN: 30.0,          // m/s² - Strong impact (>3g) - Requires significant impact
+    INACTIVITY_MAX: 5.0,       // m/s² - Minimal movement after fall - More lenient
+    JERK_SPIKE_MIN: 120.0,     // m/s³ - Sudden change indicates impact - Balanced
   };
 
   private readonly VIOLENT_MOVEMENT_THRESHOLDS = {
-    JERK_HIGH: 120.0,          // m/s³ - High jerk indicates violent motion - INCREASED
-    ACCELERATION_PEAK: 30.0,   // m/s² - Strong acceleration (>3g) - INCREASED
-    ROTATION_RAPID: 400.0,     // deg/s - Rapid rotation - INCREASED
-    VARIANCE_HIGH: 20.0,       // High variance = erratic motion - INCREASED
+    JERK_HIGH: 100.0,          // m/s³ - High jerk indicates violent motion - Balanced
+    ACCELERATION_PEAK: 25.0,   // m/s² - Strong acceleration (>2.5g) - Balanced
+    ROTATION_RAPID: 350.0,     // deg/s - Rapid rotation - Balanced
+    VARIANCE_HIGH: 18.0,       // High variance = erratic motion - Balanced
   };
 
   private readonly NORMAL_MOTION_THRESHOLDS = {
-    WALKING_MAX: 20.0,         // m/s² - Typical walking acceleration - INCREASED
-    RUNNING_MAX: 28.0,         // m/s² - Typical running acceleration - INCREASED
-    PHONE_HANDLING_MAX: 18.0,  // m/s² - Normal phone pickup/movement - INCREASED
+    WALKING_MAX: 18.0,         // m/s² - Typical walking acceleration - More forgiving
+    RUNNING_MAX: 25.0,         // m/s² - Typical running acceleration - More forgiving
+    PHONE_HANDLING_MAX: 15.0,  // m/s² - Normal phone pickup/movement - More forgiving
   };
 
   // State tracking for fall detection
@@ -125,11 +125,11 @@ export class ConfidenceScorer {
         if (features.averageAcceleration < this.FALL_THRESHOLDS.INACTIVITY_MAX) {
           this.fallDetectionState = 'post_impact';
           this.fallStateTimestamp = timestamp;
-          confidence = 0.9; // Very high confidence - full fall sequence detected
+          confidence = 0.85; // High confidence - full fall sequence detected
         } else {
           // Continued movement after impact - might be recovering or false positive
           this.fallDetectionState = 'idle';
-          confidence = 0.4; // Medium-low confidence
+          confidence = 0.3; // Low confidence - likely false positive
         }
         break;
 
@@ -138,7 +138,7 @@ export class ConfidenceScorer {
         if (timestamp - this.fallStateTimestamp > 1000) {
           this.fallDetectionState = 'idle';
         }
-        confidence = 0.85; // High confidence - confirmed fall
+        confidence = 0.8; // High confidence - confirmed fall
         break;
     }
 
@@ -170,24 +170,24 @@ export class ConfidenceScorer {
 
     // Calculate confidence based on number of indicators
     if (triggeredCount >= 3) {
-      confidence = 0.9; // Very high confidence
+      confidence = 0.85; // Very high confidence
     } else if (triggeredCount === 2) {
-      confidence = 0.7; // High confidence
+      confidence = 0.65; // Medium-high confidence
     } else if (triggeredCount === 1) {
       // Single indicator - check if it's extreme
-      if (highJerk && features.jerk > this.VIOLENT_MOVEMENT_THRESHOLDS.JERK_HIGH * 1.5) {
-        confidence = 0.6; // Medium-high confidence
+      if (highJerk && features.jerk > this.VIOLENT_MOVEMENT_THRESHOLDS.JERK_HIGH * 1.8) {
+        confidence = 0.55; // Medium confidence
       } else if (
         highAcceleration &&
-        features.peakAcceleration > this.VIOLENT_MOVEMENT_THRESHOLDS.ACCELERATION_PEAK * 1.5
+        features.peakAcceleration > this.VIOLENT_MOVEMENT_THRESHOLDS.ACCELERATION_PEAK * 1.8
       ) {
-        confidence = 0.6;
+        confidence = 0.55;
       }
     }
 
     // Filter out normal activities
     if (this.isNormalActivity(features)) {
-      confidence *= 0.3; // Reduce confidence significantly
+      confidence *= 0.2; // Reduce confidence significantly
     }
 
     return {
@@ -204,29 +204,29 @@ export class ConfidenceScorer {
   private detectAbnormalMotion(features: MotionFeatures, timestamp: number): DetectionResult {
     let confidence = 0;
 
-    // Look for sustained high acceleration with high variance - INCREASED thresholds
+    // Look for sustained high acceleration with high variance - BALANCED thresholds
     if (
-      features.averageAcceleration > 18.0 &&
-      features.variance > 15.0 &&
-      features.peakAcceleration > 28.0
+      features.averageAcceleration > 16.0 &&
+      features.variance > 14.0 &&
+      features.peakAcceleration > 24.0
     ) {
-      confidence = 0.5;
+      confidence = 0.45;
 
       // Check trend over recent history
       if (this.recentFeatures.length >= 5) {
         const recentHighAccel = this.recentFeatures
           .slice(-5)
-          .filter((f) => f.averageAcceleration > 15.0).length;
+          .filter((f) => f.averageAcceleration > 14.0).length;
 
         if (recentHighAccel >= 4) {
-          confidence = 0.65; // Sustained abnormal motion
+          confidence = 0.6; // Sustained abnormal motion
         }
       }
     }
 
     // Filter out normal activities
     if (this.isNormalActivity(features)) {
-      confidence *= 0.2;
+      confidence *= 0.15;
     }
 
     return {
@@ -242,22 +242,22 @@ export class ConfidenceScorer {
    * This is critical for reducing false positives
    */
   private isNormalActivity(features: MotionFeatures): boolean {
-    // Walking: periodic, moderate acceleration - INCREASED thresholds
+    // Walking: periodic, moderate acceleration - BALANCED thresholds
     const isWalking =
       features.peakAcceleration < this.NORMAL_MOTION_THRESHOLDS.WALKING_MAX &&
-      features.variance < 12.0 &&
-      features.jerk < 80.0;
+      features.variance < 10.0 &&
+      features.jerk < 70.0;
 
-    // Running: higher periodic acceleration - INCREASED thresholds
+    // Running: higher periodic acceleration - BALANCED thresholds
     const isRunning =
       features.peakAcceleration < this.NORMAL_MOTION_THRESHOLDS.RUNNING_MAX &&
-      features.variance < 18.0 &&
-      features.jerk < 100.0;
+      features.variance < 15.0 &&
+      features.jerk < 90.0;
 
-    // Phone handling: brief, low-to-moderate acceleration - INCREASED thresholds
+    // Phone handling: brief, low-to-moderate acceleration - BALANCED thresholds
     const isPhoneHandling =
       features.peakAcceleration < this.NORMAL_MOTION_THRESHOLDS.PHONE_HANDLING_MAX &&
-      features.rotationMagnitude < 300.0;
+      features.rotationMagnitude < 250.0;
 
     return isWalking || isRunning || isPhoneHandling;
   }
