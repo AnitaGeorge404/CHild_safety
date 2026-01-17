@@ -24,6 +24,8 @@ export class DatabaseService {
         device_info: navigator.userAgent,
       };
 
+      console.log('🔄 Sending detection to Supabase...', record);
+
       const { data, error } = await supabase
         .from('detections')
         .insert(record)
@@ -31,13 +33,25 @@ export class DatabaseService {
         .single();
 
       if (error) {
-        console.error('Error saving detection:', error);
+        console.error('❌ Supabase error saving detection:', error);
+        console.error('   Error code:', error.code);
+        console.error('   Error message:', error.message);
+        
+        if (error.message.includes('relation') || error.message.includes('does not exist')) {
+          console.error('   💡 Fix: Run supabase-schema.sql in Supabase SQL Editor!');
+          console.error('   Go to: https://rlvgephkagtejlogudqo.supabase.co → SQL Editor');
+        } else if (error.code === '42501') {
+          console.error('   💡 Fix: RLS policies are blocking. Run the FULL SQL schema including policies!');
+        }
+        
         return null;
       }
 
+      console.log('✅ Detection saved successfully:', data);
       return data?.id || null;
     } catch (error) {
-      console.error('Exception saving detection:', error);
+      console.error('❌ Exception saving detection:', error);
+      console.error('   This might be a network issue or Supabase is unreachable');
       return null;
     }
   }
@@ -61,18 +75,23 @@ export class DatabaseService {
         device_info: navigator.userAgent,
       };
 
+      console.log('🔄 Sending alert to Supabase...', record);
+
       const { error } = await supabase
         .from('alerts')
         .insert(record);
 
       if (error) {
-        console.error('Error saving alert:', error);
+        console.error('❌ Supabase error saving alert:', error);
+        console.error('   Error code:', error.code);
+        console.error('   Error message:', error.message);
         return false;
       }
 
+      console.log('✅ Alert saved successfully');
       return true;
     } catch (error) {
-      console.error('Exception saving alert:', error);
+      console.error('❌ Exception saving alert:', error);
       return false;
     }
   }
