@@ -14,6 +14,7 @@ import { useMotionSensors } from './hooks/useMotionSensors';
 import { MotionAnalyzer } from './utils/MotionAnalyzer';
 import { ConfidenceScorer } from './utils/ConfidenceScorer';
 import { AlertManager } from './utils/AlertManager';
+import { DatabaseService } from './services/DatabaseService';
 import type { AlertConfig, DetectionResult } from './types/motion';
 import './App.css';
 
@@ -29,12 +30,14 @@ function App() {
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [alertConfig, setAlertConfig] = useState<AlertConfig>({
     enabled: true,
-    confidenceThreshold: 0.7,
+    confidenceThreshold: 0.8, // Increased to 80% minimum
     cooldownPeriod: 5000, // 5 seconds
     soundEnabled: true,
   });
   const [lastDetection, setLastDetection] = useState<DetectionResult | null>(null);
   const [recentAlerts, setRecentAlerts] = useState<DetectionResult[]>([]);
+  const [saveToDatabase, setSaveToDatabase] = useState(true);
+  const [dbStatus, setDbStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
 
   // Initialize AlertManager
   useEffect(() => {
@@ -69,12 +72,41 @@ function App() {
     const detection = scorer.detect(features);
     setLastDetection(detection);
 
+    // Save significant detections to database (confidence > 0.5)
+    if (saveToDatabase && detection.type && detection.confidence > 0.5) {
+      setDbStatus('saving');
+      DatabaseService.saveDetection(detection)
+        .then((detectionId) => {
+          if (detectionId) {
+            setDbStatus('success');
+            console.log('Detection saved to database:', detectionId);
+            
+            // If it triggers an alert, save that too
+            if (alertManager && alertManager.shouldAlert(detection)) {
+              return DatabaseService.saveAlert(detection, detectionId);
+            }
+          }
+          return null;
+        })
+        .then((alertSaved) => {
+          if (alertSaved) {
+            console.log('Alert saved to database');
+          }
+          setTimeout(() => setDbStatus('idle'), 2000);
+        })
+        .catch((error) => {
+          console.error('Database error:', error);
+          setDbStatus('error');
+          setTimeout(() => setDbStatus('idle'), 2000);
+        });
+    }
+
     // Check for alerts
     if (alertManager && alertManager.shouldAlert(detection)) {
       alertManager.triggerAlert(detection);
       setRecentAlerts((prev) => [detection, ...prev.slice(0, 9)]); // Keep last 10
     }
-  }, [data, isMonitoring]);
+  }, [data, isMonitoring, saveToDatabase]);
 
   // Handle start monitoring
   const handleStartMonitoring = async () => {
@@ -135,6 +167,15 @@ function App() {
                 {analyzerRef.current.getBufferLength()} samples
               </span>
             </div>
+            <div className="status-item">
+              <span className="label">Database:</span>
+              <span className={`value ${dbStatus === 'success' ? 'success' : dbStatus === 'error' ? 'error' : 'inactive'}`}>
+                {dbStatus === 'saving' && '⏳ Saving...'}
+                {dbStatus === 'success' && '✓ Saved'}
+                {dbStatus === 'error' && '✗ Error'}
+                {dbStatus === 'idle' && '○ Ready'}
+              </span>
+            </div>
           </div>
           {status.error && (
             <div className="error-message">{status.error}</div>
@@ -187,11 +228,19 @@ function App() {
               />
               Enable Sound
             </label>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={saveToDatabase}
+                onChange={(e) => setSaveToDatabase(e.target.checked)}
+              />
+              Save to Database
+            </label>
             <label className="slider-label">
               Confidence Threshold: {(alertConfig.confidenceThreshold * 100).toFixed(0)}%
               <input
                 type="range"
-                min="0.5"
+                min="0.7"
                 max="1.0"
                 step="0.05"
                 value={alertConfig.confidenceThreshold}

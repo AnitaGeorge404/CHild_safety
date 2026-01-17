@@ -21,6 +21,7 @@ export class ConfidenceScorer {
     IMPACT_MIN: 40.0,          // m/s² - Very strong impact only (>4g)
     INACTIVITY_MAX: 8.0,       // m/s² - Very minimal movement required
     JERK_SPIKE_MIN: 200.0,     // m/s³ - Very sudden spike required
+    MIN_FREE_FALL_DURATION: 300, // ms - Minimum duration for free fall
   };
 
   private readonly VIOLENT_MOVEMENT_THRESHOLDS = {
@@ -36,10 +37,14 @@ export class ConfidenceScorer {
     PHONE_HANDLING_MAX: 22.0,  // m/s² - Very forgiving for phone handling
   };
 
+  // Minimum confidence to return any detection
+  private readonly MIN_CONFIDENCE_THRESHOLD = 0.75; // 75% minimum
+
   // State tracking for fall detection
   private fallDetectionState: 'idle' | 'free_fall' | 'impact' | 'post_impact' = 'idle';
   private fallStateTimestamp: number = 0;
   private readonly FALL_SEQUENCE_TIMEOUT = 2000; // ms - Max time for fall sequence
+  private freeFallStartTime: number = 0; // Track free fall duration
 
   // History for trend analysis
   private recentFeatures: MotionFeatures[] = [];
@@ -59,23 +64,23 @@ export class ConfidenceScorer {
 
     // Check for fall pattern (highest priority)
     const fallResult = this.detectFall(features, timestamp);
-    if (fallResult.confidence > 0) {
+    if (fallResult.confidence >= this.MIN_CONFIDENCE_THRESHOLD) {
       return fallResult;
     }
 
     // Check for violent movement
     const violentResult = this.detectViolentMovement(features, timestamp);
-    if (violentResult.confidence > 0) {
+    if (violentResult.confidence >= this.MIN_CONFIDENCE_THRESHOLD) {
       return violentResult;
     }
 
     // Check for abnormal motion
     const abnormalResult = this.detectAbnormalMotion(features, timestamp);
-    if (abnormalResult.confidence > 0) {
+    if (abnormalResult.confidence >= this.MIN_CONFIDENCE_THRESHOLD) {
       return abnormalResult;
     }
 
-    // No detection
+    // No detection that meets threshold
     return {
       type: null,
       confidence: 0,
@@ -102,21 +107,27 @@ export class ConfidenceScorer {
         if (features.magnitude < this.FALL_THRESHOLDS.FREE_FALL_MAX) {
           this.fallDetectionState = 'free_fall';
           this.fallStateTimestamp = timestamp;
+          this.freeFallStartTime = timestamp;
         }
         break;
 
       case 'free_fall':
-        // Look for impact (sudden high acceleration) - REQUIRE BOTH for high confidence
+        // Check if free fall lasted long enough
+        const freeFallDuration = timestamp - this.freeFallStartTime;
+        
+        // Look for impact (sudden high acceleration) - REQUIRE BOTH AND minimum duration
         if (
           features.peakAcceleration > this.FALL_THRESHOLDS.IMPACT_MIN &&
-          features.jerk > this.FALL_THRESHOLDS.JERK_SPIKE_MIN
+          features.jerk > this.FALL_THRESHOLDS.JERK_SPIKE_MIN &&
+          freeFallDuration >= this.FALL_THRESHOLDS.MIN_FREE_FALL_DURATION
         ) {
           this.fallDetectionState = 'impact';
           this.fallStateTimestamp = timestamp;
-          confidence = 0.65; // Detected impact after free fall
+          confidence = 0.75; // Minimum confidence threshold
         } else if (features.magnitude > this.FALL_THRESHOLDS.FREE_FALL_MAX) {
           // False alarm - movement detected during "free fall"
           this.fallDetectionState = 'idle';
+          this.freeFallStartTime = 0;
         }
         break;
 
@@ -125,11 +136,12 @@ export class ConfidenceScorer {
         if (features.averageAcceleration < this.FALL_THRESHOLDS.INACTIVITY_MAX) {
           this.fallDetectionState = 'post_impact';
           this.fallStateTimestamp = timestamp;
-          confidence = 0.8; // High confidence - full fall sequence detected
+          confidence = 0.85; // High confidence - full fall sequence detected
         } else {
-          // Continued movement after impact - might be recovering or false positive
+          // Continued movement after impact - likely false positive
           this.fallDetectionState = 'idle';
-          confidence = 0.2; // Very low confidence - likely false positive
+          this.freeFallStartTime = 0;
+          confidence = 0; // Don't report - false positive
         }
         break;
 
@@ -137,8 +149,9 @@ export class ConfidenceScorer {
         // Stay in this state briefly, then reset
         if (timestamp - this.fallStateTimestamp > 1000) {
           this.fallDetectionState = 'idle';
+          this.freeFallStartTime = 0;
         }
-        confidence = 0.75; // Confirmed fall
+        confidence = 0.9; // Very high confidence - confirmed fall
         break;
     }
 
@@ -167,29 +180,22 @@ export class ConfidenceScorer {
     // Count how many indicators are triggered
     const indicators = [highJerk, highAcceleration, rapidRotation, highVariance];
     const triggeredCount = indicators.filter(Boolean).length;
-
+    
     // Calculate confidence based on number of indicators - REQUIRE MULTIPLE
     if (triggeredCount >= 4) {
-      confidence = 0.9; // All indicators must trigger
+      confidence = 0.95; // All indicators must trigger
     } else if (triggeredCount === 3) {
-      confidence = 0.75; // At least 3 indicators
+      confidence = 0.8; // At least 3 indicators
     } else if (triggeredCount === 2) {
-      confidence = 0.5; // 2 indicators - medium confidence
-    } else if (triggeredCount === 1) {
-      // Single indicator - must be VERY extreme
-      if (highJerk && features.jerk > this.VIOLENT_MOVEMENT_THRESHOLDS.JERK_HIGH * 2.5) {
-        confidence = 0.4; // Lower confidence for single indicator
-      } else if (
-        highAcceleration &&
-        features.peakAcceleration > this.VIOLENT_MOVEMENT_THRESHOLDS.ACCELERATION_PEAK * 2.5
-      ) {
-        confidence = 0.4;
-      }
+      confidence = 0.6; // 2 indicators - below minimum threshold
+    } else {
+      // Single indicator - don't report
+      confidence = 0;
     }
 
     // Filter out normal activities - VERY aggressive filtering
     if (this.isNormalActivity(features)) {
-      confidence *= 0.1; // Drastically reduce confidence
+      confidence = 0; // Completely eliminate if normal activity detected
     }
 
     return {
@@ -208,27 +214,27 @@ export class ConfidenceScorer {
 
     // Look for sustained VERY high acceleration - MUCH HIGHER thresholds
     if (
-      features.averageAcceleration > 22.0 &&
-      features.variance > 20.0 &&
-      features.peakAcceleration > 32.0
+      features.averageAcceleration > 25.0 &&
+      features.variance > 22.0 &&
+      features.peakAcceleration > 35.0
     ) {
-      confidence = 0.4;
+      confidence = 0.5; // Below minimum threshold
 
       // Check trend over recent history - require sustained extreme motion
-      if (this.recentFeatures.length >= 5) {
+      if (this.recentFeatures.length >= 7) {
         const recentHighAccel = this.recentFeatures
-          .slice(-5)
-          .filter((f) => f.averageAcceleration > 20.0).length;
+          .slice(-7)
+          .filter((f) => f.averageAcceleration > 23.0).length;
 
-        if (recentHighAccel >= 4) {
-          confidence = 0.55; // Sustained abnormal motion
+        if (recentHighAccel >= 6) {
+          confidence = 0.75; // Sustained abnormal motion - minimum threshold
         }
       }
     }
 
     // Filter out normal activities - VERY aggressive
     if (this.isNormalActivity(features)) {
-      confidence *= 0.05; // Almost eliminate if normal activity detected
+      confidence = 0; // Completely eliminate if normal activity detected
     }
 
     return {
@@ -270,6 +276,7 @@ export class ConfidenceScorer {
   reset(): void {
     this.fallDetectionState = 'idle';
     this.fallStateTimestamp = 0;
+    this.freeFallStartTime = 0;
     this.recentFeatures = [];
   }
 
