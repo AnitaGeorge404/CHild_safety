@@ -17,23 +17,23 @@ import type { MotionFeatures, DetectionResult } from '../types/motion';
 export class ConfidenceScorer {
   // Adaptive thresholds - tuned for child safety scenarios
   private readonly FALL_THRESHOLDS = {
-    FREE_FALL_MAX: 2.0,        // m/s² - Near zero acceleration (less than ~0.2g)
-    IMPACT_MIN: 25.0,          // m/s² - Strong impact (>2.5g)
-    INACTIVITY_MAX: 3.0,       // m/s² - Minimal movement after fall
-    JERK_SPIKE_MIN: 100.0,     // m/s³ - Sudden change indicates impact
+    FREE_FALL_MAX: 2.5,        // m/s² - Near zero acceleration (less than ~0.25g) - INCREASED
+    IMPACT_MIN: 35.0,          // m/s² - Strong impact (>3.5g) - INCREASED
+    INACTIVITY_MAX: 4.0,       // m/s² - Minimal movement after fall - INCREASED
+    JERK_SPIKE_MIN: 150.0,     // m/s³ - Sudden change indicates impact - INCREASED
   };
 
   private readonly VIOLENT_MOVEMENT_THRESHOLDS = {
-    JERK_HIGH: 80.0,           // m/s³ - High jerk indicates violent motion
-    ACCELERATION_PEAK: 20.0,   // m/s² - Strong acceleration (>2g)
-    ROTATION_RAPID: 300.0,     // deg/s - Rapid rotation
-    VARIANCE_HIGH: 15.0,       // High variance = erratic motion
+    JERK_HIGH: 120.0,          // m/s³ - High jerk indicates violent motion - INCREASED
+    ACCELERATION_PEAK: 30.0,   // m/s² - Strong acceleration (>3g) - INCREASED
+    ROTATION_RAPID: 400.0,     // deg/s - Rapid rotation - INCREASED
+    VARIANCE_HIGH: 20.0,       // High variance = erratic motion - INCREASED
   };
 
   private readonly NORMAL_MOTION_THRESHOLDS = {
-    WALKING_MAX: 15.0,         // m/s² - Typical walking acceleration
-    RUNNING_MAX: 22.0,         // m/s² - Typical running acceleration
-    PHONE_HANDLING_MAX: 12.0,  // m/s² - Normal phone pickup/movement
+    WALKING_MAX: 20.0,         // m/s² - Typical walking acceleration - INCREASED
+    RUNNING_MAX: 28.0,         // m/s² - Typical running acceleration - INCREASED
+    PHONE_HANDLING_MAX: 18.0,  // m/s² - Normal phone pickup/movement - INCREASED
   };
 
   // State tracking for fall detection
@@ -204,11 +204,11 @@ export class ConfidenceScorer {
   private detectAbnormalMotion(features: MotionFeatures, timestamp: number): DetectionResult {
     let confidence = 0;
 
-    // Look for sustained high acceleration with high variance
+    // Look for sustained high acceleration with high variance - INCREASED thresholds
     if (
-      features.averageAcceleration > 12.0 &&
-      features.variance > 10.0 &&
-      features.peakAcceleration > 18.0
+      features.averageAcceleration > 18.0 &&
+      features.variance > 15.0 &&
+      features.peakAcceleration > 28.0
     ) {
       confidence = 0.5;
 
@@ -216,7 +216,7 @@ export class ConfidenceScorer {
       if (this.recentFeatures.length >= 5) {
         const recentHighAccel = this.recentFeatures
           .slice(-5)
-          .filter((f) => f.averageAcceleration > 10.0).length;
+          .filter((f) => f.averageAcceleration > 15.0).length;
 
         if (recentHighAccel >= 4) {
           confidence = 0.65; // Sustained abnormal motion
@@ -242,22 +242,22 @@ export class ConfidenceScorer {
    * This is critical for reducing false positives
    */
   private isNormalActivity(features: MotionFeatures): boolean {
-    // Walking: periodic, moderate acceleration
+    // Walking: periodic, moderate acceleration - INCREASED thresholds
     const isWalking =
       features.peakAcceleration < this.NORMAL_MOTION_THRESHOLDS.WALKING_MAX &&
-      features.variance < 8.0 &&
-      features.jerk < 50.0;
+      features.variance < 12.0 &&
+      features.jerk < 80.0;
 
-    // Running: higher periodic acceleration
+    // Running: higher periodic acceleration - INCREASED thresholds
     const isRunning =
       features.peakAcceleration < this.NORMAL_MOTION_THRESHOLDS.RUNNING_MAX &&
-      features.variance < 12.0 &&
-      features.jerk < 70.0;
+      features.variance < 18.0 &&
+      features.jerk < 100.0;
 
-    // Phone handling: brief, low-to-moderate acceleration
+    // Phone handling: brief, low-to-moderate acceleration - INCREASED thresholds
     const isPhoneHandling =
       features.peakAcceleration < this.NORMAL_MOTION_THRESHOLDS.PHONE_HANDLING_MAX &&
-      features.rotationMagnitude < 200.0;
+      features.rotationMagnitude < 300.0;
 
     return isWalking || isRunning || isPhoneHandling;
   }
