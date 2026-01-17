@@ -17,10 +17,10 @@ import type { MotionFeatures, DetectionResult } from '../types/motion';
 export class ConfidenceScorer {
   // Adaptive thresholds - tuned for child safety scenarios (BALANCED)
   private readonly FALL_THRESHOLDS = {
-    FREE_FALL_MAX: 3.5,        // m/s² - Near zero acceleration (less than ~0.35g) - Must be very low gravity
-    IMPACT_MIN: 30.0,          // m/s² - Strong impact (>3g) - Requires significant impact
-    INACTIVITY_MAX: 5.0,       // m/s² - Minimal movement after fall - More lenient
-    JERK_SPIKE_MIN: 120.0,     // m/s³ - Sudden change indicates impact - Balanced
+    FREE_FALL_MAX: 4.5,        // m/s² - Near zero acceleration (less than ~0.35g) - Must be very low gravity
+    IMPACT_MIN: 20.0,          // m/s² - Strong impact (>3g) - Requires significant impact
+    INACTIVITY_MAX: 6.0,       // m/s² - Minimal movement after fall - More lenient
+    JERK_SPIKE_MIN: 100.0,     // m/s³ - Sudden change indicates impact - Balanced
   };
 
   private readonly VIOLENT_MOVEMENT_THRESHOLDS = {
