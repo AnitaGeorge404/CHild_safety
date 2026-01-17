@@ -1,0 +1,19 @@
+{
+  "name": "Child Safety Detection",
+  "short_name": "ChildSafe",
+  "description": "Real-time motion monitoring for child safety using device sensors",
+  "theme_color": "#4f46e5",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "orientation": "portrait",
+  "scope": "/",
+  "start_url": "/",
+  "icons": [
+    {
+      "src": "/vite.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
