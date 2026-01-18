@@ -1,30 +1,46 @@
 -- Quick Cleanup Script for Supabase
--- Run this in Supabase SQL Editor to remove low-confidence detections
+-- Run this in Supabase SQL Editor to clean up the detections table
+-- (The app now saves directly to alerts table only, so detections is no longer used)
 
--- 1. Check how many records will be deleted
+-- 1. Check current data
 SELECT 
-    COUNT(*) as total_to_delete,
-    MIN(confidence) as lowest_confidence,
-    MAX(confidence) as highest_confidence
-FROM detections 
-WHERE confidence < 0.75;
+    'Detections' as table_name,
+    COUNT(*) as record_count
+FROM detections
+UNION ALL
+SELECT 
+    'Alerts' as table_name,
+    COUNT(*) as record_count
+FROM alerts;
 
--- 2. (Optional) Preview the records that will be deleted
--- SELECT * FROM detections WHERE confidence < 0.75 ORDER BY created_at DESC LIMIT 10;
+-- 2. Delete ALL records from detections table (no longer used)
+DELETE FROM detections;
 
--- 3. Delete low-confidence detections
-DELETE FROM detections WHERE confidence < 0.75;
+-- 3. Keep only high-confidence alerts (>= 80%)
+DELETE FROM alerts WHERE confidence < 0.80;
 
 -- 4. Verify cleanup
 SELECT 
-    COUNT(*) as remaining_records,
+    'Detections (should be 0)' as table_name,
+    COUNT(*) as record_count
+FROM detections
+UNION ALL
+SELECT 
+    'Alerts (high confidence only)' as table_name,
+    COUNT(*) as record_count
+FROM alerts;
+
+-- 5. Show remaining alerts
+SELECT 
+    type,
+    COUNT(*) as count,
     MIN(confidence) as min_confidence,
     MAX(confidence) as max_confidence,
     AVG(confidence) as avg_confidence
-FROM detections;
+FROM alerts
+GROUP BY type
+ORDER BY type;
 
--- 5. Check alerts table (should be empty or have few records)
-SELECT COUNT(*) as alert_count FROM alerts;
-
--- Result: You should now have only high-confidence (>=75%) detections
--- and the alerts table should start populating with new detections going forward
+-- Result: 
+-- - Detections table: Empty (no longer used)
+-- - Alerts table: Only records with confidence >= 80%

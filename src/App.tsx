@@ -72,37 +72,25 @@ function App() {
     const detection = scorer.detect(features);
     setLastDetection(detection);
 
-    // Save ONLY high-confidence detections to database (confidence >= 0.75)
-    // This reduces unnecessary database clutter
-    if (saveToDatabase && detection.type && detection.confidence >= 0.75) {
+    // Save ONLY high-confidence alerts directly (confidence >= 0.80)
+    // Skip detections table - go straight to alerts for significant events only
+    if (saveToDatabase && detection.type && detection.confidence >= 0.80) {
       setDbStatus('saving');
-      console.log('📊 Attempting to save detection:', {
+      console.log('� High-confidence detection! Saving to alerts:', {
         type: detection.type,
         confidence: detection.confidence,
         timestamp: detection.timestamp
       });
       
-      DatabaseService.saveDetection(detection)
-        .then((detectionId) => {
-          if (detectionId) {
-            setDbStatus('success');
-            console.log('✅ Detection saved to database:', detectionId);
-            
-            // ALWAYS save to alerts table for high-confidence detections
-            // Since we're only saving detections with confidence >= 0.75,
-            // all of these should also be logged as alerts
-            return DatabaseService.saveAlert(detection, detectionId);
-          } else {
-            console.error('❌ Failed to save detection - no ID returned');
-            setDbStatus('error');
-          }
-          return null;
-        })
+      // Save directly to alerts table (skip detections table)
+      DatabaseService.saveAlert(detection)
         .then((alertSaved) => {
           if (alertSaved) {
+            setDbStatus('success');
             console.log('✅ Alert saved to database');
           } else {
-            console.warn('⚠️ Alert save failed or skipped');
+            console.error('❌ Failed to save alert');
+            setDbStatus('error');
           }
           setTimeout(() => setDbStatus('idle'), 2000);
         })
@@ -142,35 +130,6 @@ function App() {
   // Test alert
   const handleTestAlert = () => {
     alertManagerRef.current?.testAlert();
-  };
-
-  // Clean up low-confidence detections
-  const handleCleanupDatabase = async () => {
-    if (!confirm('Delete detections with confidence < 75%? This cannot be undone.')) {
-      return;
-    }
-    
-    try {
-      console.log('🧹 Cleaning up low-confidence detections...');
-      const { supabase } = await import('./lib/supabase');
-      
-      // Delete detections with low confidence
-      const { error, count } = await supabase
-        .from('detections')
-        .delete({ count: 'exact' })
-        .lt('confidence', 0.75);
-      
-      if (error) {
-        console.error('❌ Cleanup failed:', error);
-        alert('Cleanup failed. Check console for details.');
-      } else {
-        console.log(`✅ Deleted ${count} low-confidence records`);
-        alert(`Successfully deleted ${count} low-confidence detections!`);
-      }
-    } catch (error) {
-      console.error('❌ Cleanup error:', error);
-      alert('Cleanup failed. Check console for details.');
-    }
   };
 
   return (
@@ -255,13 +214,6 @@ function App() {
               className="btn btn-secondary"
             >
               🔔 Test Alert
-            </button>
-            <button 
-              onClick={handleCleanupDatabase}
-              className="btn btn-secondary"
-              title="Delete detections with confidence < 75%"
-            >
-              🧹 Cleanup Database
             </button>
           </div>
 

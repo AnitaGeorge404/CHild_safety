@@ -57,7 +57,44 @@ export class DatabaseService {
   }
 
   /**
-   * Save an alert event to the database
+   * Get current location
+   */
+  private static async getCurrentLocation(): Promise<{
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+  } | null> {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        console.warn('⚠️ Geolocation not supported');
+        resolve(null);
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          console.log('📍 Location obtained:', position.coords);
+          resolve({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+          });
+        },
+        (error) => {
+          console.warn('⚠️ Could not get location:', error.message);
+          resolve(null);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 5000,
+          maximumAge: 0,
+        }
+      );
+    });
+  }
+
+  /**
+   * Save an alert event to the database with location
    */
   static async saveAlert(
     detection: DetectionResult,
@@ -66,14 +103,31 @@ export class DatabaseService {
     if (!detection.type) return false;
 
     try {
-      const record: AlertRecord = {
-        detection_id: detectionId,
+      // Get current location
+      const location = await this.getCurrentLocation();
+      
+      const record: any = {
+        detection_id: detectionId || null,
         type: detection.type,
         confidence: detection.confidence,
         timestamp: detection.timestamp,
         alert_triggered_at: new Date().toISOString(),
         device_info: navigator.userAgent,
       };
+
+      // Add location if available
+      if (location) {
+        record.latitude = location.latitude;
+        record.longitude = location.longitude;
+        record.location_accuracy = location.accuracy;
+        console.log('📍 Alert includes location:', {
+          lat: location.latitude,
+          lng: location.longitude,
+          accuracy: location.accuracy,
+        });
+      } else {
+        console.warn('⚠️ Alert saved without location data');
+      }
 
       console.log('🔄 Sending alert to Supabase...', record);
 
@@ -85,10 +139,17 @@ export class DatabaseService {
         console.error('❌ Supabase error saving alert:', error);
         console.error('   Error code:', error.code);
         console.error('   Error message:', error.message);
+        
+        if (error.message.includes('relation') || error.message.includes('does not exist')) {
+          console.error('   💡 Fix: Run supabase-schema.sql in Supabase SQL Editor!');
+        } else if (error.code === '42501') {
+          console.error('   💡 Fix: RLS policies are blocking. Run the FULL SQL schema!');
+        }
+        
         return false;
       }
 
-      console.log('✅ Alert saved successfully');
+      console.log('✅ Alert saved successfully with location');
       return true;
     } catch (error) {
       console.error('❌ Exception saving alert:', error);

@@ -35,7 +35,7 @@ export interface DetectionRecord {
 
 export interface AlertRecord {
   id?: string;
-  detection_id?: string;
+  detection_id?: string | null; // Can be null when saving directly to alerts
   type: 'fall' | 'violent_movement' | 'abnormal_motion';
   confidence: number;
   timestamp: number;
